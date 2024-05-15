@@ -1,0 +1,321 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  lahatTS
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 40
+    ReservedConcurrentExecutions: 4
+    Architectures:
+      - arm64
+Parameters:
+  FirebaseProjectId:
+    Type: String
+    Default: prod-seller-food
+  DomainName:
+    Type: String
+    Default: s-1a.lahatfood.com
+  DomainCertArn:
+    Type: String
+    Default: arn:aws:acm:ap-northeast-2:061490689224:certificate/5d3be003-7a3c-449d-85c1-d87d46b8b114
+Resources:
+  AuthGatewayHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # Domain:
+      #   DomainName: !Ref DomainName
+      #   CertificateArn: !Ref DomainCertArn
+      #   Route53:
+      #     HostedZoneId: Z0946180ZXK1AYNN7MU1
+      CorsConfiguration:
+        AllowOrigins:
+          - "http://localhost:3000"
+          - "https://store.lahatfood.com"
+          - "https://store.lahatfood.com.ph"
+          - "https://store.food.lahat.com.ph"
+          - "https://localhost:3000"
+          - "https://develop.dbj5hyots49iu.amplifyapp.com"
+          - "https://d2lncfcd1u2myg.cloudfront.net"
+          - "https://test.lahatfood.ngrok.io"
+          - "https://test.dbj5hyots49iu.amplifyapp.com"
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - "DELETE"
+          - "*"
+        MaxAge: 600
+        AllowCredentials: false
+      Auth:
+        DefaultAuthorizer: FirebaseAuthorizer
+        Authorizers:
+          FirebaseAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              audience:
+                - !Ref FirebaseProjectId
+              issuer: !Sub https://securetoken.google.com/${FirebaseProjectId}
+          
+          FirebaseAuthorizerStore:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              audience:
+                - !Ref FirebaseProjectId
+              issuer: !Sub https://securetoken.google.com/${FirebaseProjectId}
+            AuthorizationScopes:
+              - seller.store
+
+  # MyLayer:
+  #   Type: AWS::Serverless::LayerVersion
+  #   Properties:
+  #     ContentUri: ./my-layer-code
+  #     CompatibleRuntimes:
+  #       - nodejs18.x
+  #     RetentionPolicy: Retain  # 옵션: 레이어 버전 보존 정책 설정
+
+
+  #주문접수         
+  NewOrdersFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      Policies:
+        - SecretsManagerReadWritePolicy:
+            SecretArns: ["arn:aws:secretsmanager:ap-northeast-2:061490689224:secret:ProdRDS-yiceaU"]      
+      Environment:
+        Variables:
+          SECRET_NAME: MyDatabaseCredentials
+      Role: arn:aws:iam::061490689224:role/lambda-full
+      CodeUri: src/
+      ReservedConcurrentExecutions: 10
+      Handler: app.lambdaHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+
+      Events:
+        HelloWorld:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AuthGatewayHttpApi
+            Path: /store/orders/newV2
+            Method: get
+            Auth:
+              Authorizer: FirebaseAuthorizerStore
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        # Sourcemap: true # Enabling source maps will create the required NODE_OPTIONS environment variables on your lambda function during sam build
+        EntryPoints:
+        - app.ts
+
+
+# 조리중 accepted
+  AcceptedCookingFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      Policies:
+        - SecretsManagerReadWritePolicy:
+            SecretArns: ["arn:aws:secretsmanager:ap-northeast-2:061490689224:secret:ProdRDS-yiceaU"]      
+      Environment:
+        Variables:
+          SECRET_NAME: MyDatabaseCredentials
+      Role: arn:aws:iam::061490689224:role/lambda-full
+      ReservedConcurrentExecutions: 10
+      CodeUri: src/
+      Handler: app.AcceptV2Handler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+
+      Events:
+        HelloWorld:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AuthGatewayHttpApi
+            Path: /store/orders/acceptedV2
+            Method: get
+            Auth:
+              Authorizer: FirebaseAuthorizerStore
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        # Sourcemap: true # Enabling source maps will create the required NODE_OPTIONS environment variables on your lambda function during sam build
+        EntryPoints:
+        - app.ts
+
+
+# 배달중 delivery
+  deliveringOrderFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      Policies:
+        - SecretsManagerReadWritePolicy:
+            SecretArns: ["arn:aws:secretsmanager:ap-northeast-2:061490689224:secret:ProdRDS-yiceaU"]      
+      Environment:
+        Variables:
+          SECRET_NAME: MyDatabaseCredentials
+      Role: arn:aws:iam::061490689224:role/lambda-full
+      ReservedConcurrentExecutions: 10
+      CodeUri: src/
+      Handler: app.DeliveryHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+
+      Events:
+        HelloWorld:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AuthGatewayHttpApi
+            Path: /store/orders/delivery
+            Method: get
+            # Auth:
+            #   Authorizer: FirebaseAuthorizerStore
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        # Sourcemap: true # Enabling source maps will create the required NODE_OPTIONS environment variables on your lambda function during sam build
+        EntryPoints:
+        - app.ts
+
+
+#배달완료 completedV2
+  CompletedOrderFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      Policies:
+        - SecretsManagerReadWritePolicy:
+            SecretArns: ["arn:aws:secretsmanager:ap-northeast-2:061490689224:secret:ProdRDS-yiceaU"]      
+      Environment:
+        Variables:
+          SECRET_NAME: MyDatabaseCredentials
+      Role: arn:aws:iam::061490689224:role/lambda-full
+      ReservedConcurrentExecutions: 10
+      CodeUri: src/
+      Handler: app.CompletedHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+
+      Events:
+        HelloWorld:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AuthGatewayHttpApi
+            Path: /store/orders/completedV2
+            Method: get
+            Auth:
+              Authorizer: FirebaseAuthorizerStore
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        # Sourcemap: true # Enabling source maps will create the required NODE_OPTIONS environment variables on your lambda function during sam build
+        EntryPoints:
+        - app.ts
+
+#주문기록 
+  SetAcceptOrderFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      Policies:
+        - SecretsManagerReadWritePolicy:
+            SecretArns: ["arn:aws:secretsmanager:ap-northeast-2:061490689224:secret:ProdRDS-yiceaU"]      
+      Environment:
+        Variables:
+          SECRET_NAME: MyDatabaseCredentials
+      Role: arn:aws:iam::061490689224:role/lambda-full
+      ReservedConcurrentExecutions: 17
+      CodeUri: src/
+      Handler: app.setAcceptOrder
+      Runtime: nodejs18.x
+      MemorySize: 1024
+
+      Events:
+        HelloWorld:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AuthGatewayHttpApi
+            Path: /store/ordersV2
+            Method: get
+            # Auth:
+            #   Authorizer: FirebaseAuthorizerStore
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        # Sourcemap: true # Enabling source maps will create the required NODE_OPTIONS environment variables on your lambda function during sam build
+        EntryPoints:
+        - app.ts
+
+  #주문기록 리뷰 관리
+  AcceptOrderReviewFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      Policies:
+        - SecretsManagerReadWritePolicy:
+            SecretArns: ["arn:aws:secretsmanager:ap-northeast-2:061490689224:secret:ProdRDS-yiceaU"]      
+      Environment:
+        Variables:
+          SECRET_NAME: MyDatabaseCredentials
+      Role: arn:aws:iam::061490689224:role/lambda-full
+      ReservedConcurrentExecutions: 4
+      CodeUri: src/
+      Handler: app.AcceptOrderReviewHandler
+      Runtime: nodejs18.x
+      MemorySize: 1024
+
+      Events:
+        HelloWorld:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AuthGatewayHttpApi
+            Path: /store/reviews/{orderId}
+            Method: get
+            # Auth:
+            #   Authorizer: FirebaseAuthorizerStore
+    Metadata: # Manage esbuild properties
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: "es2020"
+        Sourcemap: true
+        # Sourcemap: true # Enabling source maps will create the required NODE_OPTIONS environment variables on your lambda function during sam build
+        EntryPoints:
+        - app.ts
+
+  # ApplicationResourceGroup:
+  #   Type: AWS::ResourceGroups::Group
+  #   Properties:
+  #     Name:
+  #       Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
+  #     ResourceQuery:
+  #       Type: CLOUDFORMATION_STACK_1_0
+  # ApplicationInsightsMonitoring:
+  #   Type: AWS::ApplicationInsights::Application
+  #   Properties:
+  #     ResourceGroupName:
+  #       Ref: ApplicationResourceGroup
+  #     AutoConfigurationEnabled: 'true'
+# Outputs:
+#   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+#   # Find out more about other implicit resources you can reference within SAM
+#   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+#   HelloWorldApi:
+#     Description: API Gateway endpoint URL for Prod stage for Hello World function
+#     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+#   HelloWorldFunction:
+#     Description: Hello World Lambda Function ARN
+#     Value: !GetAtt HelloWorldFunction.Arn
+#   # HelloWorldFunctionIamRole:
+#   #   Description: Implicit IAM Role created for Hello World function
+#   #   Value: !GetAtt HelloWorldFunctionRole.Arn
